@@ -1,0 +1,41 @@
+# --------------------------------------------------------------------------
+# Stage 1: build wheels (keeps compilers out of the final runtime image)
+# --------------------------------------------------------------------------
+FROM python:3.11-slim AS builder
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements.txt .
+RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+
+# --------------------------------------------------------------------------
+# Stage 2: lightweight runtime
+# --------------------------------------------------------------------------
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libpq5 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home appuser
+
+COPY --from=builder /wheels /wheels
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt \
+    && rm -rf /wheels
+
+COPY backend/ .
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    ALLOWED_ORIGINS="https://your-frontend-domain.example.com"
+
+USER appuser
+EXPOSE 8000
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
