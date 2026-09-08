@@ -173,10 +173,3 @@ the corresponding API call, with Indian Rupee formatting via
 cd infra
 docker compose up --build
 ```
-
-## Disclaimer
-
-This tool is for estimation purposes only and does not constitute tax,
-legal, or financial advice. Always verify figures against the official
-Income Tax Department guidance or a qualified chartered accountant before
-filing.
