@@ -14,8 +14,14 @@ never add latency to the user-facing response.
 import os
 import logging
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+
+# Load variables from a local .env file (if present) before anything
+# else reads os.getenv(...) below. No-op in production where the
+# platform (Lambda/App Runner/ECS) injects real env vars directly.
+load_dotenv()
 
 from schemas import (
     CalculateRequest,

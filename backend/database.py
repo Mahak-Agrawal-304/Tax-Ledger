@@ -9,12 +9,17 @@ for development via the DATABASE_URL environment variable.
 import os
 from typing import Optional
 
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
+# Loads variables from a local .env file if one exists (no-op in
+# production, where env vars are injected by the platform instead).
+load_dotenv()
+
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql+psycopg2://tax_user:tax_pass@localhost:5432/tax_calculator",
+    "postgresql+psycopg://tax_user:tax_pass@localhost:5432/tax_calculator",
 )
 
 # pool_pre_ping guards against RDS connections dropped after idling.
