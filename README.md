@@ -85,6 +85,8 @@ cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
+cp .env.example .env   # then edit .env with your real DATABASE_URL
+
 # Run the API (http://localhost:8000, docs at /docs)
 uvicorn main:app --reload
 
@@ -92,12 +94,86 @@ uvicorn main:app --reload
 pytest tests/test_calculator.py -v
 ```
 
-Environment variables (all optional, sensible defaults provided):
+Environment variables (all optional, sensible defaults provided). Set these in
+a `backend/.env` file (see `.env.example`) — it's loaded automatically at
+startup and is already git-ignored.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `ALLOWED_ORIGINS` | `http://localhost:5173,http://localhost:3000` | Comma-separated CORS allow-list |
-| `DATABASE_URL` | `postgresql+psycopg2://tax_user:tax_pass@localhost:5432/tax_calculator` | Telemetry DB connection string |
+| `DATABASE_URL` | `postgresql+psycopg://tax_user:tax_pass@localhost:5432/tax_calculator` | Telemetry DB connection string |
+
+## Connecting to AWS RDS for PostgreSQL
+
+### 1. Create an AWS account (skip if you already have one)
+Go to [aws.amazon.com](https://aws.amazon.com) → **Create an AWS Account**. You'll
+need a credit/debit card even for free-tier usage (RDS's `db.t3.micro` /
+`db.t4g.micro` instance is free-tier eligible for 12 months).
+
+### 2. Create an IAM user (don't use the root account day-to-day)
+1. AWS Console → search **IAM** → **Users** → **Create user**.
+2. Give it a name (e.g. `tax-calculator-admin`), attach the
+   `AdministratorAccess` policy for now (you can scope this down later).
+3. You won't need IAM credentials for the RDS *database* password itself —
+   this is just for logging into the AWS Console/CLI securely instead of
+   using the root account.
+
+### 3. Create the RDS PostgreSQL instance
+1. Console → search **RDS** → **Create database**.
+2. **Engine type**: PostgreSQL. Version: 16.x (matches `docker-compose.yml`).
+3. **Templates**: choose **Free tier** if eligible.
+4. **Settings**:
+   - DB instance identifier: `tax-calculator-db`
+   - Master username: `tax_admin`
+   - Master password: set and save it somewhere safe (a password manager).
+5. **Instance configuration**: `db.t3.micro` (free tier) is plenty for this app.
+6. **Storage**: default (20 GB gp3) is fine.
+7. **Connectivity**:
+   - VPC: default is fine for testing.
+   - **Public access: Yes** (only for local development — set this to
+     **No** once your backend runs inside AWS too, e.g. on App Runner/ECS
+     in the same VPC).
+   - Create a **new security group**, e.g. `tax-calculator-db-sg`.
+8. **Additional configuration**: set **Initial database name** to
+   `tax_calculator` (this matches `models.py`/`DATABASE_URL` and saves you
+   a manual `CREATE DATABASE` step).
+9. Click **Create database**. It takes 5–10 minutes to become "Available".
+
+### 4. Open the security group to your IP
+1. RDS → Databases → `tax-calculator-db` → **Connectivity & security** tab
+   → click the security group link (`tax-calculator-db-sg`).
+2. **Inbound rules** → **Edit inbound rules** → **Add rule**:
+   - Type: `PostgreSQL` (auto-fills port 5432)
+   - Source: **My IP** (safest for local dev — avoid `0.0.0.0/0` in
+     anything beyond a throwaway test)
+3. Save rules.
+
+### 5. Get the endpoint and configure your app
+1. Same **Connectivity & security** tab → copy the **Endpoint**, e.g.
+   `tax-calculator-db.abc123xyz.ap-south-1.rds.amazonaws.com`.
+2. In `backend/.env` (copy from `.env.example` if you haven't):
+   ```
+   DATABASE_URL=postgresql+psycopg://tax_admin:YOUR_PASSWORD@tax-calculator-db.abc123xyz.ap-south-1.rds.amazonaws.com:5432/tax_calculator?sslmode=require
+   ```
+   `sslmode=require` matters — RDS enforces TLS by default.
+
+### 6. Verify the connection
+```bash
+cd backend
+python scripts/test_db_connection.py
+```
+This connects, prints the Postgres server version, and creates the
+`calculation_logs` table if it doesn't exist yet — confirming your
+credentials, network access, and schema are all correct before you run
+the full app.
+
+### 7. Run the app against RDS
+```bash
+uvicorn main:app --reload
+```
+Every `/calculate` and `/compare` request now logs a telemetry row into
+your RDS instance in the background, with zero added response latency
+(see `log_calculation_async` in `database.py`).
 
 ### API reference
 
@@ -173,3 +249,10 @@ the corresponding API call, with Indian Rupee formatting via
 cd infra
 docker compose up --build
 ```
+
+## Disclaimer
+
+This tool is for estimation purposes only and does not constitute tax,
+legal, or financial advice. Always verify figures against the official
+Income Tax Department guidance or a qualified chartered accountant before
+filing.
